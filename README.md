@@ -1,10 +1,7 @@
 <h1 align="center">Hi 👋, I&#39;m Kubilay</h1>
 
-<p align="center">
-  <a href="https://kubilaycan.com">
-    <img src="https://readme-typing-svg.demolab.com?font=Space+Grotesk&weight=500&size=22&duration=3000&pause=900&color=FF6A2B&center=true&vCenter=true&width=560&lines=Frontend+engineer+%40+Echonos;Real-time+3D+with+three.js+%26+R3F;Shaders%2C+simulations+%26+Web+Audio;Hobbyist+game+dev+in+Unity" alt="Frontend engineer at Echonos · Real-time 3D with three.js and R3F · Shaders, simulations and Web Audio · Hobbyist game dev in Unity">
-  </a>
-</p>
+<h3 align="center">Frontend Engineer at <a href="https://github.com/Echonos">Echonos</a></h3>
+<p align="center">UI architecture · Interactive experiences · Real-time graphics · Game development</p>
 
 <p align="center">
   <a href="https://kubilaycan.com"><img src="https://img.shields.io/badge/Website-kubilaycan.com-FF6A2B?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Website"></a>

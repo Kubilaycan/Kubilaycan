@@ -79,43 +79,45 @@ function render(dates) {
   const GREENS = ['#9be9a8', '#40c463', '#30a14e', '#216e39'];
   const shade = (v, max) => (v ? GREENS[Math.min(3, Math.floor((v / max) * 4))] : '#d0d7de');
 
-  const W = 480;
-  const chart = (values, labels, { y, h, barW, gap, x0 }) => {
+  const W = 480, H = 166;
+  // Values are only printed on the peak bar to keep the compact charts readable
+  const chart = (values, labels, { y, h, barW, gap, x0, labelEvery = 1 }) => {
     const max = Math.max(1, ...values);
+    const peak = values.indexOf(max);
     return values.map((v, i) => {
       const bh = v ? Math.max(3, (v / max) * h) : 2;
       const x = x0 + i * (barW + gap);
       const top = y + h - bh;
       return `<rect x="${x}" y="${top.toFixed(1)}" width="${barW}" height="${bh.toFixed(1)}" rx="2" fill="${shade(v, max)}"/>`
-        + (v ? `<text x="${x + barW / 2}" y="${(top - 4).toFixed(1)}" class="v">${v}</text>` : '')
-        + `<text x="${x + barW / 2}" y="${y + h + 14}" class="l">${labels[i]}</text>`;
+        + (i === peak && v ? `<text x="${x + barW / 2}" y="${(top - 4).toFixed(1)}" class="v">${v}</text>` : '')
+        + (i % labelEvery === 0 ? `<text x="${x + barW / 2}" y="${y + h + 13}" class="l">${labels[i]}</text>` : '');
     }).join('');
   };
 
-  const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const DAY = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
   const peakHour = hours.indexOf(Math.max(...hours));
-  const peakDay = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][days.indexOf(Math.max(...days))];
+  const peakDay = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][days.indexOf(Math.max(...days))];
   const hourLabels = hours.map((_, i) => String(i).padStart(2, '0'));
 
-  // 24 bars of 14px with 5px gaps = 451px, centred in 480
-  const hoursChart = chart(hours, hourLabels, { y: 62, h: 70, barW: 14, gap: 5, x0: 15 });
-  // 7 bars of 40px with 18px gaps = 388px, centred in 480
-  const daysChart = chart(days, DAY, { y: 190, h: 60, barW: 40, gap: 18, x0: 46 });
+  // Side by side so the panel matches the height of the languages panel next to it:
+  // 24 hour bars spanning x 12-306, 7 weekday bars spanning x 336-468
+  const hoursChart = chart(hours, hourLabels, { y: 58, h: 62, barW: 9, gap: 3.5, x0: 12, labelEvery: 3 });
+  const daysChart = chart(days, DAY, { y: 58, h: 62, barW: 15, gap: 4.5, x0: 336 });
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="295" viewBox="0 0 ${W} 295" role="img" aria-label="Coding habits: commits per hour of day and per day of week">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Coding habits: commits per hour of day and per day of week">
 <style>
 text{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif}
 .h{font-size:16px;fill:#0366d6}.s{font-size:12px;fill:#0366d6;text-anchor:middle}
-.v{font-size:9px;fill:#777;text-anchor:middle}.l{font-size:10px;fill:#777;text-anchor:middle}
+.v{font-size:9px;fill:#777;text-anchor:middle}.l{font-size:9px;fill:#777;text-anchor:middle}
 .f{font-size:12px;fill:#777}
 </style>
 <g transform="translate(5 9)" fill="#0366d6"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"/></g>
 <text x="30" y="22" class="h">Coding habits</text>
-<text x="${W / 2}" y="44" class="s">Commits per hour of day (Istanbul time)</text>
+<text x="159" y="44" class="s">Commits per hour (Istanbul time)</text>
 ${hoursChart}
-<text x="${W / 2}" y="172" class="s">Commits per day of week</text>
+<text x="402" y="44" class="s">Per weekday</text>
 ${daysChart}
-<text x="15" y="284" class="f">${dates.length.toLocaleString('en-US')} commits in the last 12 months · busiest on ${peakDay}s around ${String(peakHour).padStart(2, '0')}:00</text>
+<text x="12" y="157" class="f">${dates.length.toLocaleString('en-US')} commits in the last 12 months · busiest on ${peakDay}s around ${String(peakHour).padStart(2, '0')}:00</text>
 </svg>
 `;
 }
