@@ -56,5 +56,5 @@
 </p>
 <p align="center">
   <img src="metrics/languages.svg" width="49%" alt="Most used languages">
-  <img src="metrics/activity.svg" width="49%" alt="Lines of code added and removed over time">
+  <img src="metrics/habits.svg" width="49%" alt="Coding habits: commits per hour of day and per day of week">
 </p>

@@ -6,21 +6,28 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [".github/workflows/metrics.yml"]
+    paths: [".github/workflows/metrics.yml", ".github/scripts/**"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: metrics
+  cancel-in-progress: true
+
 # Each panel is rendered on its own so the README can lay them out as a 2x2 bento grid.
-# Renders go to /metrics_renders and are committed once at the end.
+# Panels are allowed to fail or time out individually; whatever rendered is committed once at the end.
 jobs:
   metrics:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Profile panel
         uses: lowlighter/metrics@latest
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           token: ${{ secrets.METRICS_TOKEN }}
           user: Kubilaycan
@@ -32,6 +39,8 @@ jobs:
 
       - name: Calendar panel
         uses: lowlighter/metrics@latest
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           token: ${{ secrets.METRICS_TOKEN }}
           user: Kubilaycan
@@ -44,6 +53,8 @@ jobs:
 
       - name: Languages panel
         uses: lowlighter/metrics@latest
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           token: ${{ secrets.METRICS_TOKEN }}
           user: Kubilaycan
@@ -59,28 +70,26 @@ jobs:
           # Unity serialises assets in files GitHub detects as ShaderLab/Mathematica, so hide that noise
           plugin_languages_ignored: shaderlab, mathematica, wolfram language
 
-      # The habits plugin crashes since GitHub dropped commit lists from PushEvent payloads,
-      # so this panel uses repository contributor stats instead.
-      - name: Code activity panel
-        uses: lowlighter/metrics@latest
-        with:
-          token: ${{ secrets.METRICS_TOKEN }}
-          user: Kubilaycan
-          filename: metrics/activity.svg
-          output_action: none
-          config_timezone: Europe/Istanbul
-          base: ""
-          repositories_affiliations: owner, collaborator, organization_member
-          plugin_lines: yes
-          plugin_lines_sections: base, history
-          plugin_lines_history_limit: 1
-          plugin_lines_delay: 10
+      # lowlighter's habits plugin crashes since GitHub dropped commit lists from PushEvent payloads,
+      # and its lines plugin hangs on contributor stats, so this panel is rendered by our own script.
+      - name: Habits panel
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.METRICS_TOKEN }}
+        run: node .github/scripts/habits.mjs metrics/habits.svg
 
       - name: Commit panels
+        if: always()
         run: |
           mkdir -p metrics
-          cp -r /metrics_renders/metrics/. metrics/
+          if [ -d /metrics_renders/metrics ]; then cp -r /metrics_renders/metrics/. metrics/; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add metrics
-          git diff --cached --quiet || git commit -m "Update metrics" && git push
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update metrics [skip ci]"
+            git push
+          fi
