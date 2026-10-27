@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="187.2" height="30" viewBox="0 0 187.2 30" role="img" aria-label="LINKEDIN: KUBILAY CAN">
+<style>
+text{font-family:ui-monospace,'SF Mono','Cascadia Mono',Consolas,'Courier New',monospace;font-weight:700}
+.title{font-size:10px;fill:#e8ecf5;letter-spacing:1.5px}.sub{font-size:9px;fill:#8b97b8;letter-spacing:1px}
+.t{font-size:9px;fill:#8b97b8}.f{font-size:9.5px;fill:#c3cbe0;letter-spacing:.5px}.fa{fill:#ff6a2b}
+.bl{font-size:10px;fill:#e8ecf5;letter-spacing:1.2px}.bv{font-size:10.5px;fill:#ffffff;letter-spacing:.5px}
+</style>
+<path d="M2 0H185.2V2H187.2V28H185.2V30H2V28H0V2H2Z" fill="#2c3550"/>
+<rect x="4" y="4" width="74" height="22" fill="#141a2b"/>
+<rect x="80" y="4" width="101.2" height="22" fill="#ff6a2b"/>
+<rect x="80" y="23" width="101.2" height="3" fill="#c94f1d"/>
+<rect x="10" y="12" width="5" height="5" fill="#ff6a2b"/>
+<text x="20" y="19" class="bl">LINKEDIN</text>
+<text x="130.6" y="19" class="bv" text-anchor="middle">KUBILAY CAN</text>
+</svg>

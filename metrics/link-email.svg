@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="252.6" height="30" viewBox="0 0 252.6 30" role="img" aria-label="EMAIL: CAN.KUBILAY@OUTLOOK.COM">
+<style>
+text{font-family:ui-monospace,'SF Mono','Cascadia Mono',Consolas,'Courier New',monospace;font-weight:700}
+.title{font-size:10px;fill:#e8ecf5;letter-spacing:1.5px}.sub{font-size:9px;fill:#8b97b8;letter-spacing:1px}
+.t{font-size:9px;fill:#8b97b8}.f{font-size:9.5px;fill:#c3cbe0;letter-spacing:.5px}.fa{fill:#ff6a2b}
+.bl{font-size:10px;fill:#e8ecf5;letter-spacing:1.2px}.bv{font-size:10.5px;fill:#ffffff;letter-spacing:.5px}
+</style>
+<path d="M2 0H250.6V2H252.6V28H250.6V30H2V28H0V2H2Z" fill="#2c3550"/>
+<rect x="4" y="4" width="53" height="22" fill="#141a2b"/>
+<rect x="59" y="4" width="187.6" height="22" fill="#ff6a2b"/>
+<rect x="59" y="23" width="187.6" height="3" fill="#c94f1d"/>
+<rect x="10" y="12" width="5" height="5" fill="#ff6a2b"/>
+<text x="20" y="19" class="bl">EMAIL</text>
+<text x="152.8" y="19" class="bv" text-anchor="middle">CAN.KUBILAY@OUTLOOK.COM</text>
+</svg>

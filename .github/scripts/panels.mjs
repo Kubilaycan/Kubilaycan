@@ -121,9 +121,17 @@ ${css}
 // Draws a bitmap (array of strings) as crisp rects; palette maps characters to fills
 function bitmap(rows, palette, x0 = 0, y0 = 0, p = 1) {
   let out = '';
-  rows.forEach((row, y) => [...row].forEach((c, x) => {
-    if (palette[c]) out += `<rect x="${x0 + x * p}" y="${y0 + y * p}" width="${p}" height="${p}" fill="${palette[c]}"/>`;
-  }));
+  rows.forEach((row, y) => {
+    const cells = [...row];
+    // Merge runs of the same colour into one rect to keep files small
+    for (let x = 0; x < cells.length;) {
+      const c = cells[x];
+      let n = 1;
+      while (cells[x + n] === c) n++;
+      if (palette[c]) out += `<rect x="${+(x0 + x * p).toFixed(2)}" y="${+(y0 + y * p).toFixed(2)}" width="${+(n * p).toFixed(2)}" height="${p}" fill="${palette[c]}"/>`;
+      x += n;
+    }
+  });
   return out;
 }
 
@@ -139,28 +147,62 @@ function renderCalendar({ calendar }) {
   const W = 480, H = 210;
   const weeks = calendar.weeks.slice(-26);
   const CW = 13, DX = 6, DY = 9; // cell width, per-row depth offset
-  const OX = 50, OY = 160; // front-left corner of the grid
+  const OX = 50, OY = 156; // front-left corner of the grid
   const LEVEL = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
-  const HEIGHT = [0, 8, 9, 14, 22];
+  const HEIGHT = [0, 10, 12, 16, 24];
 
   const pt = (x, y) => `${x},${y}`;
   const poly = (pts, fill, extra = '') => `<polygon points="${pts.map(([x, y]) => pt(x, y)).join(' ')}" fill="${fill}"${extra}/>`;
+  // Grid point in oblique projection; fractional c/r let the rim follow the grid's own slant
   const base = (c, r) => [OX + c * CW + r * DX, OY - r * DY];
 
-  // Sand rim and cliff under the grid
+  // Sand rim and cliff, built from the same axes as the tiles so every edge is parallel
   const cols = weeks.length;
-  const fl = [OX - 7, OY + 4], fr = [OX + cols * CW + 7, OY + 4];
-  const br = [OX + cols * CW + 7 * DX + 7, OY - 7 * DY - 4], bl = [OX + 7 * DX - 7, OY - 7 * DY - 4];
-  let art = poly([[fl[0], fl[1]], [fr[0], fr[1]], [fr[0], fr[1] + 9], [fl[0], fl[1] + 9]], '#6b4a2b')
-    + poly([[fr[0], fr[1]], [br[0], br[1]], [br[0], br[1] + 9], [fr[0], fr[1] + 9]], '#5a3d22')
-    + poly([fl, fr, br, bl], '#e6c98a')
-    + poly([[fl[0] + 4, fl[1] - 2], [fr[0] - 4, fr[1] - 2], [br[0] - 4, br[1] + 2], [bl[0] + 4, bl[1] + 2]], '#d9b877');
+  const rim = (m) => [base(-m, -m), base(cols + m, -m), base(cols + m, 7 + m), base(-m, 7 + m)];
+  const [A, B, C] = rim(0.7);
+  const down = ([x, y], d) => [x, y + d];
+  let art = poly([A, B, down(B, 9), down(A, 9)], '#6b4a2b')
+    + poly([B, C, down(C, 9), down(B, 9)], '#5a3d22')
+    + poly(rim(0.7), '#e6c98a')
+    + poly(rim(0.3), '#d9b877');
 
-  const block = (c, r, h, top, front, side, extra = '') => {
-    const [x, y] = base(c, r);
-    return poly([[x, y - h], [x + CW, y - h], [x + CW + DX, y - DY - h], [x + DX, y - DY - h]], top)
-      + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="${front}"/>`
-      + poly([[x + CW, y], [x + CW + DX, y - DY], [x + CW + DX, y - DY - h], [x + CW, y - h]], side) + extra;
+  // A box standing on cell (c, r): top face, front face, right side face
+  const faces = (x, y, h) => ({
+    top: [[x, y - h], [x + CW, y - h], [x + CW + DX, y - DY - h], [x + DX, y - DY - h]],
+    side: [[x + CW, y], [x + CW + DX, y - DY], [x + CW + DX, y - DY - h], [x + CW, y - h]],
+  });
+  const windowsOn = (x, y, h, fill, step = 4) => {
+    let out = '';
+    for (let wy = y - h + 3; wy <= y - 5; wy += step)
+      for (const wx of [x + 3, x + 8]) out += `<rect x="${wx}" y="${wy}" width="2" height="2" fill="${fill}"/>`;
+    return out;
+  };
+
+  // Every level is a building at a different stage of being made, like a UI going from sketch to launch
+  const building = (lvl, x, y) => {
+    const h = HEIGHT[lvl], f = faces(x, y, h);
+    if (lvl === 1) {
+      // Sketch: a blueprint outline with dashed windows
+      const s = ' fill="#9cc9ff" fill-opacity=".14" stroke="#9cc9ff" stroke-width="1" stroke-dasharray="2 1.5"';
+      return poly(f.side, '#9cc9ff', s.replace(' fill="#9cc9ff"', '')) + poly(f.top, '#9cc9ff', s.replace(' fill="#9cc9ff"', ''))
+        + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}"${s}/>`
+        + `<rect x="${x + 3}" y="${y - h + 3}" width="2" height="2" fill="none" stroke="#9cc9ff" stroke-width=".6"/><rect x="${x + 8}" y="${y - h + 3}" width="2" height="2" fill="none" stroke="#9cc9ff" stroke-width=".6"/>`;
+    }
+    if (lvl === 2) {
+      // Lo-fi: grey massing with placeholder windows and a door
+      return poly(f.top, '#c4cad8') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#9098ad"/>` + poly(f.side, '#747c93')
+        + windowsOn(x, y, h, '#c4cad8') + `<rect x="${x + 5}" y="${y - 4}" width="3" height="4" fill="#6b7287"/>`;
+    }
+    if (lvl === 3) {
+      // Built: finished house, cream walls and a green roof
+      return poly(f.top, '#40c463') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#ece4d0"/>` + poly(f.side, '#c9bfa6')
+        + `<rect x="${x}" y="${y - h}" width="${CW}" height="2" fill="#2f9a4a"/>`
+        + windowsOn(x, y, h, '#2b3a55') + `<rect x="${x + 5}" y="${y - 5}" width="3" height="5" fill="#8a5a33"/>`;
+    }
+    // Launched: lit tower with an orange roof and an antenna
+    return poly(f.top, '#ff6a2b') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#3d4a6b"/>` + poly(f.side, '#28304a')
+      + windowsOn(x, y, h, '#ffd36b') + `<rect x="${x + DX / 2 + 6}" y="${y - DY / 2 - h - 6}" width="1" height="6" fill="#e8ecf5"/>`
+      + `<rect x="${x + DX / 2 + 5.5}" y="${y - DY / 2 - h - 7}" width="2" height="2" fill="#ff6a2b"/>`;
   };
 
   const today = weeks.at(-1).contributionDays.at(-1).date;
@@ -172,28 +214,10 @@ function renderCalendar({ calendar }) {
       total += day.contributionCount;
       const lvl = LEVEL[day.contributionLevel] ?? 0;
       const [x, y] = base(c, r);
-      // grass tile
       art += poly([[x, y], [x + CW, y], [x + CW + DX, y - DY], [x + DX, y - DY]], (c + r) % 2 ? '#4caf50' : '#46a24a');
-      if (lvl === 1) {
-        // sketch: dashed wireframe cube
-        const h = HEIGHT[1], s = ' fill="none" stroke="#e8f0ff" stroke-width="1" stroke-dasharray="2 2"';
-        art += `<polyline points="${[[x, y], [x, y - h], [x + CW, y - h], [x + CW, y], [x, y]].map(([a, b]) => pt(a, b)).join(' ')}"${s}/>`
-          + `<polyline points="${[[x, y - h], [x + DX, y - DY - h], [x + CW + DX, y - DY - h], [x + CW, y - h]].map(([a, b]) => pt(a, b)).join(' ')}"${s}/>`
-          + `<polyline points="${[[x + CW + DX, y - DY - h], [x + CW + DX, y - DY], [x + CW, y]].map(([a, b]) => pt(a, b)).join(' ')}"${s}/>`;
-      } else if (lvl === 2) {
-        art += block(c, r, HEIGHT[2], '#c4cad8', '#9098ad', '#747c93');
-      } else if (lvl === 3) {
-        art += block(c, r, HEIGHT[3], '#9be9a8', '#40c463', '#2f9a4a');
-      } else if (lvl === 4) {
-        const h = HEIGHT[4];
-        let windows = '';
-        for (let wy = y - h + 4; wy < y - 2; wy += 4)
-          for (const wx of [x + 3, x + 8]) windows += `<rect x="${wx}" y="${wy}" width="2" height="2" fill="#ffd36b"/>`;
-        art += block(c, r, h, '#2c3652', '#3d4a6b', '#28304a', windows)
-          + poly([[x, y - h], [x + CW, y - h], [x + CW + DX, y - DY - h], [x + DX, y - DY - h]], '#ff6a2b', ' opacity=".9"');
-      }
+      if (lvl) art += building(lvl, x, y);
       if (day.date === today) {
-        const fx = x + DX + 3, fy = y - DY - HEIGHT[lvl] - 1;
+        const fx = x + 2, fy = y - HEIGHT[lvl] - (lvl === 4 ? 8 : 1);
         art += `<rect x="${fx}" y="${fy - 16}" width="1" height="16" fill="#e8ecf5"/><polygon points="${pt(fx + 1, fy - 16)} ${pt(fx + 9, fy - 13)} ${pt(fx + 1, fy - 10)}" fill="#ff6a2b"/>`;
       }
     });
@@ -205,7 +229,7 @@ function renderCalendar({ calendar }) {
     const m = new Date(week.contributionDays[0].date).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
     const x = OX + c * CW;
     if (m !== last && c < cols - 1 && x - lastX >= 32) {
-      months += `<text x="${x}" y="${OY + 23}" class="t">${m}</text>`;
+      months += `<text x="${x}" y="${OY + 26}" class="t">${m}</text>`;
       lastX = x;
     }
     last = m;
@@ -226,16 +250,16 @@ function renderCalendar({ calendar }) {
   const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   let shimmer = '';
   for (let i = 0; i < 46; i++) {
-    const x = Math.floor(rand() * 470), y = 62 + Math.floor(rand() * 128);
+    const x = Math.floor(rand() * 470), y = 66 + Math.floor(rand() * 104);
     shimmer += `<rect x="${x}" y="${y}" width="${4 + Math.floor(rand() * 6)}" height="1" fill="#bfe3ff" style="animation-delay:${(-rand() * 4).toFixed(2)}s"/>`;
   }
 
   // Legend: the four build stages
   const legend = [
-    ['SKETCH', `<rect x="0" y="0" width="7" height="7" fill="none" stroke="#e8f0ff" stroke-dasharray="2 2"/>`],
-    ['LO-FI', `<rect x="0" y="0" width="7" height="7" fill="#9098ad"/>`],
-    ['BUILT', `<rect x="0" y="0" width="7" height="7" fill="#40c463"/>`],
-    ['LAUNCHED', `<rect x="0" y="0" width="7" height="7" fill="#3d4a6b"/><rect x="0" y="0" width="7" height="2" fill="#ff6a2b"/>`],
+    ['SKETCH', `<rect x=".5" y=".5" width="7" height="7" fill="#9cc9ff" fill-opacity=".14" stroke="#9cc9ff" stroke-dasharray="2 1.5"/>`],
+    ['LO-FI', `<rect x="0" y="0" width="8" height="8" fill="#9098ad"/><rect x="2" y="2" width="2" height="2" fill="#c4cad8"/><rect x="5" y="2" width="2" height="2" fill="#c4cad8"/>`],
+    ['BUILT', `<rect x="0" y="0" width="8" height="8" fill="#ece4d0"/><rect x="0" y="0" width="8" height="2" fill="#40c463"/><rect x="2" y="4" width="2" height="2" fill="#2b3a55"/><rect x="5" y="4" width="2" height="2" fill="#2b3a55"/>`],
+    ['LAUNCHED', `<rect x="0" y="0" width="8" height="8" fill="#3d4a6b"/><rect x="0" y="0" width="8" height="2" fill="#ff6a2b"/><rect x="2" y="4" width="2" height="2" fill="#ffd36b"/><rect x="5" y="4" width="2" height="2" fill="#ffd36b"/>`],
   ];
   let lx = 472, legendSvg = '';
   for (const [name, icon] of [...legend].reverse()) {
@@ -525,17 +549,248 @@ ${ticks}
 `;
 }
 
+/* ------------------------------------------------------ pixel icon kit */
+
+// Tiny 3x5 font for letters inside icons
+const F35 = {
+  A: ['.x.', 'x.x', 'xxx', 'x.x', 'x.x'], C: ['xxx', 'x..', 'x..', 'x..', 'xxx'], E: ['xxx', 'x..', 'xx.', 'x..', 'xxx'],
+  J: ['..x', '..x', '..x', 'x.x', 'xxx'], N: ['x..x', 'xx.x', 'x.xx', 'x..x', 'x..x'], S: ['xxx', 'x..', 'xxx', '..x', 'xxx'],
+  T: ['xxx', '.x.', '.x.', '.x.', '.x.'], '#': ['.x.x.', 'xxxxx', '.x.x.', 'xxxxx', '.x.x.'], '+': ['...', '.x.', 'xxx', '.x.', '...'],
+};
+
+// Small raster to compose icons from primitives; cells hold palette characters
+function canvas(w, h) {
+  const g = Array.from({ length: h }, () => Array(w).fill('.'));
+  const api = {
+    set(x, y, c) { if (x >= 0 && y >= 0 && x < w && y < h) g[y][x] = c; return api; },
+    rect(x, y, rw, rh, c) { for (let j = 0; j < rh; j++) for (let i = 0; i < rw; i++) api.set(x + i, y + j, c); return api; },
+    disc(cx, cy, r, c) {
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r) api.set(x, y, c);
+      return api;
+    },
+    ring(cx, cy, r, t, c) {
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        if (d <= r && d > r - t) api.set(x, y, c);
+      }
+      return api;
+    },
+    line(x0, y0, x1, y1, c) {
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      for (let i = 0; i <= n; i++) api.set(Math.round(x0 + ((x1 - x0) * i) / n), Math.round(y0 + ((y1 - y0) * i) / n), c);
+      return api;
+    },
+    text(str, x, y, c) {
+      for (const ch of str) {
+        const glyph = F35[ch];
+        glyph.forEach((row, j) => [...row].forEach((v, i) => v === 'x' && api.set(x + i, y + j, c)));
+        x += glyph[0].length + 1;
+      }
+      return api;
+    },
+    rows: () => g.map((r) => r.join('')),
+  };
+  return api;
+}
+
+// Rounded tile helper: square with clipped corners
+const tile = (w, h, c) => canvas(w, h).rect(0, 0, w, h, c).set(0, 0, '.').set(w - 1, 0, '.').set(0, h - 1, '.').set(w - 1, h - 1, '.');
+
+// 24 tools, each { name, rows, pal }. Drawn at 3x scale.
+const ICONS = [
+  ['React', () => ({
+    rows: ['.....ccc.....', '...cc...cc...', 'cc..c...c..cc', 'c.cc.....cc.c', 'c...c.c.c...c', '.cc..ccc..cc.', 'c...c.c.c...c', 'c.cc.....cc.c', 'cc..c...c..cc', '...cc...cc...', '.....ccc.....'],
+    pal: { c: '#61dafb' },
+  })],
+  ['TypeScript', () => ({ rows: tile(12, 12, 'b').text('TS', 4, 6, 'w').rows(), pal: { b: '#3178c6', w: '#ffffff' } })],
+  ['JavaScript', () => ({ rows: tile(12, 12, 'y').text('JS', 4, 6, 'k').rows(), pal: { y: '#f7df1e', k: '#1b1b1b' } })],
+  ['Vite', () => ({
+    rows: ['pppppppppppp', '.pppppyyppp.', '..ppppyyp...', '..pppyyyyyp.', '...ppyyypp..', '...pppyypp..', '....pyypp...', '....pyyp....', '.....yp.....', '.....p......'],
+    pal: { p: '#8c7bff', y: '#ffcf33' },
+  })],
+  ['Tailwind', () => ({
+    rows: ['.....cccc....', '...cc....c...', '..c.......cc.', 'cc..cccc.....', '...cc....c...', '..c.......cc.', 'cc...........'],
+    pal: { c: '#38bdf8' },
+  })],
+  ['Next.js', () => ({ rows: canvas(12, 12).disc(6, 6, 6, 'w').rect(3, 3, 1, 6, 'k').line(4, 4, 8, 9, 'k').rect(8, 3, 1, 4, 'k').rows(), pal: { w: '#f2f4f8', k: '#0b0d14' } })],
+  ['Angular', () => ({
+    rows: ['.....rr.....', '...rrrRR....', '.rrrrrRRRRR.', '.rrrrwwRRRR.', '.rrrwrrwRRR.', '.rrrwrrwRRR.', '.rrrwwwwRRR.', '..rwrrrRwR..', '..rwrrrRwR..', '...rrrRRR...', '....rrRR....', '.....rR.....'],
+    pal: { r: '#dd0031', R: '#b3002a', w: '#ffffff' },
+  })],
+  ['three.js', () => ({
+    rows: ['w...........', 'ww..........', 'w.w.........', 'wwww........', 'w...w.......', 'ww..ww......', 'w.w.w.w.....', 'wwwwwwww....', 'w.......w...', 'ww......ww..', 'w.w....w.w..', 'wwwwwwwwwwww'],
+    pal: { w: '#e8ecf5' },
+  })],
+  ['Blender', () => ({
+    rows: canvas(13, 12).line(0, 3, 5, 3, 'o').line(2, 6, 5, 6, 'o').line(1, 1, 6, 4, 'o').ring(8, 7, 5, 2, 'o').disc(8, 7, 2.2, 'b').rows(),
+    pal: { o: '#f5792a', b: '#265787' },
+  })],
+  ['Unity', () => ({
+    rows: ['.....ww.....', '...ww..ww...', '.ww......ww.', 'ww...ww...ww', 'w.ww....ww.w', 'w...wwww...w', 'w.....w....w', 'w.....w....w', 'ww....w...ww', '.ww...w..ww.', '...ww.w.ww..', '.....www....'],
+    pal: { w: '#e8ecf5' },
+  })],
+  ['C#', () => ({ rows: canvas(12, 12).disc(6, 6, 6, 'p').text('C#', 1, 4, 'w').rows(), pal: { p: '#9b4f96', w: '#ffffff' } })],
+  ['C++', () => ({ rows: canvas(13, 12).disc(6.5, 6, 6, 'b').text('C++', 1, 4, 'w').rows(), pal: { b: '#00599c', w: '#ffffff' } })],
+  ['Node.js', () => {
+    const c = canvas(12, 12);
+    [4, 2, 1, 0, 0, 0, 0, 0, 0, 1, 2, 4].forEach((inset, y) => c.rect(inset, y, 12 - inset * 2, 1, 'g'));
+    return { rows: c.text('JS', 3, 4, 'w').rows(), pal: { g: '#5fa04e', w: '#ffffff' } };
+  }],
+  ['NestJS', () => ({
+    rows: ['.r........r.', '.rr......rr.', '.rrrrrrrrrr.', 'rrrrrrrrrrrr', 'rrkkrrrrkkrr', 'rrrrrrrrrrrr', '.rrrrrrrrrr.', '..rrrrrrrr..', '...rrrrrr...', '....rrrr....'],
+    pal: { r: '#e0234e', k: '#1b1b1b' },
+  })],
+  ['Prisma', () => ({
+    rows: ['.....w......', '.....ww.....', '....wiw.....', '....wiiw....', '...wiiiw....', '...wiiiiw...', '..wiiiiiw...', '..wiiiiiiw..', '.wiiiiiiiw..', '.wwiiiiiiww.', '..wwwwwwwwww'],
+    pal: { w: '#e8ecf5', i: '#5a67d8' },
+  })],
+  ['PostgreSQL', () => ({
+    rows: ['..bbbbbbb...', '.bbbbbbbbb..', 'bbwbbbbbbbbb', 'bbbbbbbbbbbb', 'bbbbbbbbb.bb', '.bbbbbbb..b.', '..bb.bb...b.', '..bb.bb..bb.', '..ww.ww.....'],
+    pal: { b: '#336791', w: '#e8ecf5' },
+  })],
+  ['.NET', () => ({ rows: tile(14, 12, 'p').set(1, 8, 'w').text('NET', 2, 4, 'w').rows(), pal: { p: '#512bd4', w: '#ffffff' } })],
+  ['Azure', () => ({
+    rows: ['....bbb.....', '....bbbb....', '...bbbbb....', '...bbb.bb...', '..bbb..bbb..', '..bbb...bbb.', '.bbb...lllb.', '.bbb..lllllb', 'bbb.lllllll.', 'bb..........'],
+    pal: { b: '#0078d4', l: '#50e6ff' },
+  })],
+  ['Firebase', () => ({
+    rows: ['..y.........', '..yy........', '..yyy..o....', '.yyyy.oo....', '.yyyyooo....', '.yyyoooo.o..', '.yyyoooooo..', 'yyyyooooooo.', 'yyyoooooooo.', '.oooooooooo.', '..oooooooo..'],
+    pal: { y: '#ffca28', o: '#f57c00' },
+  })],
+  ['Git', () => {
+    const c = canvas(12, 12);
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) if (Math.abs(x + 0.5 - 6) + Math.abs(y + 0.5 - 6) <= 6) c.set(x, y, 'o');
+    return { rows: c.line(4, 3, 4, 8, 'w').line(5, 4, 7, 6, 'w').rect(4, 8, 1, 1, 'w').rect(3, 8, 2, 2, 'w').rect(7, 6, 2, 2, 'w').rect(3, 2, 2, 2, 'w').rows(), pal: { o: '#f05032', w: '#ffffff' } };
+  }],
+  ['GH Actions', () => ({
+    rows: canvas(12, 12).ring(3, 3, 3, 1.2, 'b').line(3, 6, 3, 9, 'b').line(6, 3, 8, 3, 'b').ring(9, 4, 2.5, 1.2, 'b').ring(4, 10, 2.2, 1.2, 'b').line(6, 10, 9, 10, 'b').disc(10, 10, 1.6, 'w').rows(),
+    pal: { b: '#2088ff', w: '#e8ecf5' },
+  })],
+  ['Netlify', () => {
+    const c = canvas(12, 12);
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+      const d = Math.abs(x + 0.5 - 6) + Math.abs(y + 0.5 - 6);
+      if (d <= 6 && d > 4.6) c.set(x, y, 't');
+    }
+    return { rows: c.rect(5, 2, 2, 8, 't').rect(2, 5, 8, 2, 't').rows(), pal: { t: '#32e6e2' } };
+  }],
+  ['Jest', () => ({ rows: tile(12, 12, 'm').text('J', 4, 3, 'w').disc(3, 10, 1.4, 'w').disc(6, 10.5, 1.4, 'w').disc(9, 10, 1.4, 'w').rows(), pal: { m: '#99425b', w: '#ffffff' } })],
+  ['Vitest', () => ({
+    rows: ['g..........g', 'gg........gg', '.gg..y...gg.', '.gg.yy...gg.', '..ggyyyyygg.', '..gg.yyygg..', '...gg.ygg...', '...ggyygg...', '....ggggg...', '.....ggg....', '......g.....'],
+    pal: { g: '#729b1b', y: '#fcc72b' },
+  })],
+];
+
+/* ------------------------------------------------------------ top panels */
+
+// 5x7 pixel font for the hero headline
+const F57 = {
+  H: ['x...x', 'x...x', 'x...x', 'xxxxx', 'x...x', 'x...x', 'x...x'], I: ['xxx', '.x.', '.x.', '.x.', '.x.', '.x.', 'xxx'],
+  M: ['x...x', 'xx.xx', 'x.x.x', 'x.x.x', 'x...x', 'x...x', 'x...x'], K: ['x...x', 'x..x.', 'x.x..', 'xx...', 'x.x..', 'x..x.', 'x...x'],
+  U: ['x...x', 'x...x', 'x...x', 'x...x', 'x...x', 'x...x', '.xxx.'], B: ['xxxx.', 'x...x', 'x...x', 'xxxx.', 'x...x', 'x...x', 'xxxx.'],
+  L: ['x....', 'x....', 'x....', 'x....', 'x....', 'x....', 'xxxxx'], A: ['.xxx.', 'x...x', 'x...x', 'xxxxx', 'x...x', 'x...x', 'x...x'],
+  Y: ['x...x', 'x...x', '.x.x.', '..x..', '..x..', '..x..', '..x..'], ',': ['..', '..', '..', '..', '..', '.x', 'x.'],
+  "'": ['x', 'x', '.', '.', '.', '.', '.'], ' ': ['...', '...', '...', '...', '...', '...', '...'],
+};
+const pixelText = (str) => {
+  const rows = Array(7).fill('');
+  for (const ch of str) F57[ch].forEach((r, i) => { rows[i] += r + '.'; });
+  return rows;
+};
+
+function renderHero() {
+  const W = 966, H = 128;
+  const headline = pixelText("HI, I'M KUBILAY");
+  const quests = [
+    ['Product UI at Echonos', '#40c463'],
+    ['Building a drivable portfolio at kubilaycan.com', '#ff6a2b'],
+    ['GPU sims, engine sounds and WebGL experiments', '#3fa9f5'],
+    ['Unity games after hours', '#a371f7'],
+  ];
+  const qx = 572, qy = 30;
+  const questRows = quests.map(([q, c], i) => `<rect x="${qx + 14}" y="${qy + 23 + i * 18}" width="6" height="6" fill="${c}"/><text x="${qx + 28}" y="${qy + 30 + i * 18}" class="q">${q}</text>`).join('');
+  return `${svgOpen(W, H, "Hi, I'm Kubilay. Frontend Engineer at Echonos. UI architecture, interactive experiences, real-time graphics and game development.", `.q{font-size:11px;fill:#e8ecf5;font-weight:600}.sub2{font-size:13px;fill:#ff6a2b;letter-spacing:1px}.tag{font-size:9.5px;fill:#8b97b8;letter-spacing:.6px}
+.cursor{animation:blink 1.1s steps(1) infinite}@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cursor{animation:none}}`)}
+${frame(W, H, 'HELLO WORLD')}
+<text x="${W - 14}" y="16" class="sub" text-anchor="end">PRESS START</text>
+<g shape-rendering="crispEdges">${bitmap(headline, { x: '#0b0d14' }, 25, 37, 5)}${bitmap(headline, { x: '#ffffff' }, 22, 34, 5)}</g>
+<rect class="cursor" x="${22 + headline[0].length * 5 + 2}" y="34" width="12" height="35" fill="#ff6a2b"/>
+<text x="22" y="94" class="sub2">FRONTEND ENGINEER AT ECHONOS</text>
+<text x="22" y="114" class="tag">UI ARCHITECTURE · INTERACTIVE EXPERIENCES · REAL-TIME GRAPHICS · GAME DEVELOPMENT</text>
+<rect x="${qx}" y="${qy}" width="${W - qx - 14}" height="${H - qy - 12}" fill="#0b0d14"/>
+<rect x="${qx + 2}" y="${qy + 2}" width="${W - qx - 18}" height="${H - qy - 16}" fill="#1b2236"/>
+<text x="${qx + 14}" y="${qy + 15}" class="sub">CURRENT QUESTS</text>
+${questRows}
+</svg>
+`;
+}
+
+function renderSkills() {
+  const W = 966, P = 3, COLS = 8;
+  const sw = 112, sh = 64, gap = 6, x0 = (W - (COLS * sw + (COLS - 1) * gap)) / 2, y0 = 30;
+  const rows = Math.ceil(ICONS.length / COLS);
+  const H = y0 + rows * sh + (rows - 1) * gap + 12;
+  const slots = ICONS.map(([name, make], i) => {
+    const { rows: icon, pal } = make();
+    const x = x0 + (i % COLS) * (sw + gap), y = y0 + Math.floor(i / COLS) * (sh + gap);
+    const iw = icon[0].length * P, ih = icon.length * P;
+    return `<rect x="${x}" y="${y}" width="${sw}" height="${sh}" fill="#0b0d14"/><rect x="${x + 2}" y="${y + 2}" width="${sw - 4}" height="${sh - 4}" fill="#1b2236"/>`
+      + bitmap(icon, pal, x + (sw - iw) / 2, y + 6 + (39 - ih) / 2, P)
+      + `<text x="${x + sw / 2}" y="${y + sh - 9}" class="s" text-anchor="middle">${name}</text>`;
+  }).join('');
+  return `${svgOpen(W, H, `Tech stack: ${ICONS.map(([n]) => n).join(', ')}`, `.s{font-size:9.5px;fill:#c3cbe0}`)}
+${frame(W, H, 'SKILL TREE')}
+<text x="${W - 14}" y="16" class="sub" text-anchor="end">${ICONS.length} TOOLS UNLOCKED</text>
+<g shape-rendering="crispEdges">${slots}</g>
+</svg>
+`;
+}
+
+// Link buttons: one small image per link so each can sit inside its own <a>
+function renderButton(label, value) {
+  const lw = label.length * 7 + 22, vw = value.length * 7.2 + 22, W = lw + vw + 8, H = 30;
+  return `${svgOpen(W, H, `${label}: ${value}`, `.bl{font-size:10px;fill:#e8ecf5;letter-spacing:1.2px}.bv{font-size:10.5px;fill:#ffffff;letter-spacing:.5px}`)}
+<path d="M2 0H${W - 2}V2H${W}V${H - 2}H${W - 2}V${H}H2V${H - 2}H0V2H2Z" fill="#2c3550"/>
+<rect x="4" y="4" width="${lw - 4}" height="${H - 8}" fill="#141a2b"/>
+<rect x="${lw + 2}" y="4" width="${vw}" height="${H - 8}" fill="#ff6a2b"/>
+<rect x="${lw + 2}" y="${H - 7}" width="${vw}" height="3" fill="#c94f1d"/>
+<rect x="10" y="12" width="5" height="5" fill="#ff6a2b"/>
+<text x="20" y="19" class="bl">${label}</text>
+<text x="${lw + 2 + vw / 2}" y="19" class="bv" text-anchor="middle">${value}</text>
+</svg>
+`;
+}
+
 /* ------------------------------------------------------------------ main */
+
+// Every panel gets a 3px transparent margin, so a full-width panel lines up exactly with
+// two half-width panels placed side by side (966 + 6 = 2 x (480 + 6)).
+const PAD = 3;
+function padded(svg) {
+  return svg
+    .replace(/<svg ([^>]*?)width="([\d.]+)" height="([\d.]+)" viewBox="0 0 [\d.]+ [\d.]+"([^>]*)>/, (_, pre, w, h, post) => {
+      const W = +w + PAD * 2, H = +h + PAD * 2;
+      return `<svg ${pre}width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"${post}><g transform="translate(${PAD} ${PAD})">`;
+    })
+    .replace(/<\/svg>\s*$/, '</g>\n</svg>\n');
+}
 
 const data = await collect();
 mkdirSync(OUT_DIR, { recursive: true });
 const panels = {
+  hero: renderHero(),
+  skills: renderSkills(),
+  'link-website': renderButton('WEBSITE', 'KUBILAYCAN.COM'),
+  'link-linkedin': renderButton('LINKEDIN', 'KUBILAY CAN'),
+  'link-email': renderButton('EMAIL', 'CAN.KUBILAY@OUTLOOK.COM'),
   profile: renderProfile(data),
   calendar: renderCalendar(data),
   languages: renderLanguages(data),
   habits: renderHabits(data.dates),
 };
 for (const [name, svg] of Object.entries(panels)) {
-  writeFileSync(join(OUT_DIR, `${name}.svg`), svg);
-  console.log(`panels: wrote ${join(OUT_DIR, name)}.svg (${(svg.length / 1024).toFixed(1)} KB)`);
+  const out = name.startsWith('link-') ? svg : padded(svg);
+  writeFileSync(join(OUT_DIR, `${name}.svg`), out);
+  console.log(`panels: wrote ${join(OUT_DIR, name)}.svg (${(out.length / 1024).toFixed(1)} KB)`);
 }
