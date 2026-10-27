@@ -15,75 +15,28 @@ concurrency:
   group: metrics
   cancel-in-progress: true
 
-# Each panel is rendered on its own so the README can lay them out as a 2x2 bento grid.
-# Panels are allowed to fail or time out individually; whatever rendered is committed once at the end.
+# Renders the four pixel-world panels (profile, calendar, languages, habits) into metrics/
+# with our own script, then commits them if anything changed.
 jobs:
   metrics:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Profile panel
-        uses: lowlighter/metrics@latest
-        timeout-minutes: 5
-        continue-on-error: true
+      - uses: actions/setup-node@v4
         with:
-          token: ${{ secrets.METRICS_TOKEN }}
-          user: Kubilaycan
-          filename: metrics/profile.svg
-          output_action: none
-          config_timezone: Europe/Istanbul
-          base: header, repositories
-          repositories_affiliations: owner, collaborator, organization_member
+          node-version: 22
 
-      - name: Calendar panel
-        uses: lowlighter/metrics@latest
-        timeout-minutes: 5
-        continue-on-error: true
-        with:
-          token: ${{ secrets.METRICS_TOKEN }}
-          user: Kubilaycan
-          filename: metrics/calendar.svg
-          output_action: none
-          config_timezone: Europe/Istanbul
-          base: ""
-          plugin_isocalendar: yes
-          plugin_isocalendar_duration: half-year
-
-      - name: Languages panel
-        uses: lowlighter/metrics@latest
-        timeout-minutes: 5
-        continue-on-error: true
-        with:
-          token: ${{ secrets.METRICS_TOKEN }}
-          user: Kubilaycan
-          filename: metrics/languages.svg
-          output_action: none
-          config_timezone: Europe/Istanbul
-          base: ""
-          repositories_affiliations: owner, collaborator, organization_member
-          plugin_languages: yes
-          plugin_languages_sections: most-used
-          plugin_languages_details: percentage
-          plugin_languages_limit: 8
-          # Unity serialises assets in files GitHub detects as ShaderLab/Mathematica, so hide that noise
-          plugin_languages_ignored: shaderlab, mathematica, wolfram language
-
-      # lowlighter's habits plugin crashes since GitHub dropped commit lists from PushEvent payloads,
-      # and its lines plugin hangs on contributor stats, so this panel is rendered by our own script.
-      - name: Habits panel
-        timeout-minutes: 5
-        continue-on-error: true
+      - name: Render panels
+        timeout-minutes: 8
         env:
+          # Classic PAT with the "repo" and "read:user" scopes, saved as a repository secret
           GITHUB_TOKEN: ${{ secrets.METRICS_TOKEN }}
-        run: node .github/scripts/habits.mjs metrics/habits.svg
+        run: node .github/scripts/panels.mjs metrics
 
       - name: Commit panels
-        if: always()
         run: |
-          mkdir -p metrics
-          if [ -d /metrics_renders/metrics ]; then cp -r /metrics_renders/metrics/. metrics/; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add metrics
@@ -91,5 +44,6 @@ jobs:
             echo "No changes"
           else
             git commit -m "Update metrics [skip ci]"
+            git pull --rebase
             git push
           fi

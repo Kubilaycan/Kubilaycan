@@ -48,10 +48,10 @@
 </table>
 
 <p align="center">
-  <img src="metrics/profile.svg" width="49%" alt="GitHub profile summary">
-  <img src="metrics/calendar.svg" width="49%" alt="Isometric contributions calendar for the last six months">
+  <img src="metrics/profile.svg" width="49%" alt="Player card: name, class, level and equipped tools">
+  <img src="metrics/calendar.svg" width="49%" alt="Contributions island: the last 26 weeks as building plots">
 </p>
 <p align="center">
-  <img src="metrics/languages.svg" width="49%" alt="Most used languages">
-  <img src="metrics/habits.svg" width="49%" alt="Coding habits: commits per hour of day and per day of week">
+  <img src="metrics/languages.svg" width="49%" alt="Inventory: most used languages">
+  <img src="metrics/habits.svg" width="49%" alt="Coding habits: pixel skyline of commits per hour of day">
 </p>
