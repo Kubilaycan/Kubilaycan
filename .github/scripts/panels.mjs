@@ -5,8 +5,9 @@
 //   habits.svg    skyline           (commits per hour of day)
 // Counts include private and organisation repositories the token's owner can access.
 // Usage: GITHUB_TOKEN=... node .github/scripts/panels.mjs [output dir]
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const TOKEN = process.env.GITHUB_TOKEN;
 const OUT_DIR = process.argv[2] ?? 'metrics';
@@ -14,7 +15,8 @@ const UTC_OFFSET_HOURS = 3; // Europe/Istanbul, no DST
 const SINCE = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString();
 const DISPLAY_NAME = 'Kubilay Can';
 const CLASS = 'Frontend Engineer';
-const EQUIPPED = [['React', '#61dafb'], ['TypeScript', '#3178c6'], ['three.js', '#e8ecf5'], ['Unity', '#9aa4b8'], ['Node.js', '#5fa04e'], ['Blender', '#f5792a']];
+// Shown in the player card; names must match entries in ICONS
+const EQUIPPED = ['React', 'TypeScript', 'three.js', 'Unity', 'C#', 'Node.js', 'Blender', 'Vite', 'Tailwind', 'NestJS'];
 // Unity serialises assets in files GitHub detects as these, so they would drown out real code
 const IGNORED_LANGUAGES = new Set(['ShaderLab', 'Mathematica', 'Wolfram Language']);
 
@@ -141,228 +143,283 @@ const pad2 = (n) => String(n).padStart(2, '0');
 
 /* --------------------------------------------------------- island panel */
 
-// The last 26 weeks as an island of building plots, drawn in oblique projection.
-// Each day's contribution level is a stage of building a UI: sketch, lo-fi, built, launched.
+// The last 5 weeks as a floating island city in oblique projection: weeks run left to right,
+// weekdays run from Monday at the back (top) to Sunday at the front (bottom). Every lot is ringed by the
+// same small road, like grid lines, and cars drive along a few of them.
+// Each day is a lot; its contribution level decides what stands on it.
 function renderCalendar({ calendar }) {
-  const W = 480, H = 210;
-  const weeks = calendar.weeks.slice(-26);
-  const CW = 13, DX = 6, DY = 9; // cell width, per-row depth offset
-  const OX = 50, OY = 156; // front-left corner of the grid
+  const W = 250, H = 250, WEEKS = 5;
+  const CW = 28, DX = 9, DY = 12; // cell pitch, per-row depth offset
   const LEVEL = { NONE: 0, FIRST_QUARTILE: 1, SECOND_QUARTILE: 2, THIRD_QUARTILE: 3, FOURTH_QUARTILE: 4 };
-  const HEIGHT = [0, 10, 12, 16, 24];
+  const HEIGHT = [0, 8, 14, 20, 30];
+  const m = 7, mr = 0.45; // grass rim around the city (px across, rows deep)
+  const DIRT = 15, TIP = 22; // dirt cliff height and the rocky point hanging under it
+  const cityW = WEEKS * CW;
 
-  const pt = (x, y) => `${x},${y}`;
+  // Centre the whole island (tallest tower to rocky tip, weekday labels included) in the scene
+  const SX0 = 8, SX1 = W - 8, SY0 = 46, SY1 = H - 24;
+  const relL = -m - mr * DX, relR = Math.max(cityW + m + (7 + mr) * DX, cityW + m + 6.5 * DX + 14);
+  const relT = -(7 + mr) * DY - (HEIGHT[4] + DY * 0.5 + 10), relB = mr * DY + DIRT + TIP;
+  const OX = Math.round(SX0 + (SX1 - SX0 - (relR - relL)) / 2 - relL);
+  const OY = Math.round(SY0 + (SY1 - SY0 - (relB - relT)) / 2 - relT);
+
+  // Monday-first weeks ending with the current one
+  const all = calendar.weeks.flatMap((w) => w.contributionDays);
+  const today = all.at(-1);
+  const byDate = new Map(all.map((d) => [d.date, d]));
+  const start = new Date(today.date + 'T00:00:00Z');
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7) - (WEEKS - 1) * 7);
+  const dateAt = (c, r) => { const t = new Date(start); t.setUTCDate(t.getUTCDate() + c * 7 + r); return t; };
+
+  const at = (x, rr) => [OX + x + rr * DX, OY - rr * DY];
+  const pt = (x, y) => `${+x.toFixed(2)},${+y.toFixed(2)}`;
   const poly = (pts, fill, extra = '') => `<polygon points="${pts.map(([x, y]) => pt(x, y)).join(' ')}" fill="${fill}"${extra}/>`;
-  // Grid point in oblique projection; fractional c/r let the rim follow the grid's own slant
-  const base = (c, r) => [OX + c * CW + r * DX, OY - r * DY];
+  const quad = (x0, x1, r0, r1) => [at(x0, r0), at(x1, r0), at(x1, r1), at(x0, r1)];
 
-  // Sand rim and cliff, built from the same axes as the tiles so every edge is parallel
-  const cols = weeks.length;
-  const rim = (m) => [base(-m, -m), base(cols + m, -m), base(cols + m, 7 + m), base(-m, 7 + m)];
-  const [A, B, C] = rim(0.7);
-  const down = ([x, y], d) => [x, y + d];
-  let art = poly([A, B, down(B, 9), down(A, 9)], '#6b4a2b')
-    + poly([B, C, down(C, 9), down(B, 9)], '#5a3d22')
-    + poly(rim(0.7), '#e6c98a')
-    + poly(rim(0.3), '#d9b877');
+  // Floating island: grass rim on top, dirt cliff below it, tapering to a rocky point
+  const rim = quad(-m, cityW + m, -mr, 7 + mr);
+  const [A, B, C] = rim;
+  const dn = ([x, y], d) => [x, y + d];
+  const mid = [(A[0] + C[0]) / 2 + 10, A[1] + DIRT + TIP];
+  let art = poly([dn(A, DIRT), dn(B, DIRT), dn(C, DIRT), [mid[0] + 40, mid[1] - 14], [mid[0] + 6, mid[1]], [mid[0] - 30, mid[1] - 10]], '#4a3320')
+    + poly([dn(A, DIRT), dn(B, DIRT), [mid[0] + 18, mid[1] - 8], [mid[0] - 20, mid[1] - 14]], '#5a3d22')
+    + poly([A, B, dn(B, DIRT), dn(A, DIRT)], '#6b4a2b') + poly([B, C, dn(C, DIRT), dn(B, DIRT)], '#5a3d22');
+  // dirt specks and pebbles on the cliff faces
+  let seed = 23;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 26; i++) {
+    const t = rand(), [x0, y0] = [A[0] + (B[0] - A[0]) * t, A[1]];
+    art += `<rect x="${(x0).toFixed(1)}" y="${(y0 + 4 + rand() * (DIRT - 6)).toFixed(1)}" width="2" height="2" fill="${rand() < 0.5 ? '#5a3d22' : '#7d5a37'}"/>`;
+  }
+  art += poly([A, B, dn(B, 3), dn(A, 3)], '#3b8a3e') + poly([B, C, dn(C, 3), dn(B, 3)], '#2f7a34') // grass lip over the cliff
+    + poly(rim, '#4caf50') + poly(quad(-m / 2, cityW + m / 2, -mr / 2, 7 + mr / 2), '#46a24a')
+    // The whole city sits on asphalt and lots are inset, so the gaps form an even road grid
+    + poly(quad(-2, cityW + 2, -0.15, 7.15), '#3a3f4d');
+  // two small rocks floating beside the island
+  for (const [rx, ry, rs] of [[SX0 + 10, SY0 + 34, 6], [SX1 - 22, SY0 + 30, 4]])
+    art += `<rect x="${rx}" y="${ry}" width="${rs * 2}" height="2" fill="#4caf50"/><rect x="${rx}" y="${ry + 2}" width="${rs * 2}" height="${rs}" fill="#6b4a2b"/><rect x="${rx + rs / 2}" y="${ry + 2 + rs}" width="${rs}" height="${rs / 2 + 1}" fill="#4a3320"/>`;
 
-  // A box standing on cell (c, r): top face, front face, right side face
-  const faces = (x, y, h) => ({
-    top: [[x, y - h], [x + CW, y - h], [x + CW + DX, y - DY - h], [x + DX, y - DY - h]],
-    side: [[x + CW, y], [x + CW + DX, y - DY], [x + CW + DX, y - DY - h], [x + CW, y - h]],
-  });
-  const windowsOn = (x, y, h, fill, step = 4) => {
+  // Buildings by level, standing inside their lot
+  const BD = 0.5, bdx = DX * BD, bdy = DY * BD;
+  const box = (x, y, w, h, top, wall, side) => poly([[x, y - h], [x + w, y - h], [x + w + bdx, y - h - bdy], [x + bdx, y - h - bdy]], top)
+    + `<rect x="${x}" y="${y - h}" width="${w}" height="${h}" fill="${wall}"/>` + poly([[x + w, y], [x + w + bdx, y - bdy], [x + w + bdx, y - bdy - h], [x + w, y - h]], side);
+  const windows = (x, y, h, w, fill) => {
     let out = '';
-    for (let wy = y - h + 3; wy <= y - 5; wy += step)
-      for (const wx of [x + 3, x + 8]) out += `<rect x="${wx}" y="${wy}" width="2" height="2" fill="${fill}"/>`;
+    for (let wy = y - h + 4; wy <= y - 6; wy += 5) for (let wx = x + 3; wx <= x + w - 5; wx += 5) out += `<rect x="${wx}" y="${wy}" width="2" height="2" fill="${fill}"/>`;
     return out;
   };
-
-  // Every level is a building at a different stage of being made, like a UI going from sketch to launch
   const building = (lvl, x, y) => {
-    const h = HEIGHT[lvl], f = faces(x, y, h);
-    if (lvl === 1) {
-      // Sketch: a blueprint outline with dashed windows
-      const s = ' fill="#9cc9ff" fill-opacity=".14" stroke="#9cc9ff" stroke-width="1" stroke-dasharray="2 1.5"';
-      return poly(f.side, '#9cc9ff', s.replace(' fill="#9cc9ff"', '')) + poly(f.top, '#9cc9ff', s.replace(' fill="#9cc9ff"', ''))
-        + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}"${s}/>`
-        + `<rect x="${x + 3}" y="${y - h + 3}" width="2" height="2" fill="none" stroke="#9cc9ff" stroke-width=".6"/><rect x="${x + 8}" y="${y - h + 3}" width="2" height="2" fill="none" stroke="#9cc9ff" stroke-width=".6"/>`;
-    }
-    if (lvl === 2) {
-      // Lo-fi: grey massing with placeholder windows and a door
-      return poly(f.top, '#c4cad8') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#9098ad"/>` + poly(f.side, '#747c93')
-        + windowsOn(x, y, h, '#c4cad8') + `<rect x="${x + 5}" y="${y - 4}" width="3" height="4" fill="#6b7287"/>`;
-    }
-    if (lvl === 3) {
-      // Built: finished house, cream walls and a green roof
-      return poly(f.top, '#40c463') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#ece4d0"/>` + poly(f.side, '#c9bfa6')
-        + `<rect x="${x}" y="${y - h}" width="${CW}" height="2" fill="#2f9a4a"/>`
-        + windowsOn(x, y, h, '#2b3a55') + `<rect x="${x + 5}" y="${y - 5}" width="3" height="5" fill="#8a5a33"/>`;
-    }
+    const h = HEIGHT[lvl], w = CW - 12;
+    if (lvl === 1) // Sketch: a simple white cottage
+      return box(x, y, w, h, '#f4f6fa', '#dde2ea', '#b8bfcc') + `<rect x="${x + w / 2 - 1.5}" y="${y - 5}" width="3" height="5" fill="#8a93a6"/>`;
+    if (lvl === 2) // Lo-fi: grey block with placeholder windows
+      return box(x, y, w, h, '#c4cad8', '#9098ad', '#747c93') + windows(x, y, h, w, '#c4cad8');
+    if (lvl === 3) // Built: cream house with a green roof
+      return box(x, y, w, h, '#40c463', '#ece4d0', '#c9bfa6') + windows(x, y, h, w, '#2b3a55');
     // Launched: lit tower with an orange roof and an antenna
-    return poly(f.top, '#ff6a2b') + `<rect x="${x}" y="${y - h}" width="${CW}" height="${h}" fill="#3d4a6b"/>` + poly(f.side, '#28304a')
-      + windowsOn(x, y, h, '#ffd36b') + `<rect x="${x + DX / 2 + 6}" y="${y - DY / 2 - h - 6}" width="1" height="6" fill="#e8ecf5"/>`
-      + `<rect x="${x + DX / 2 + 5.5}" y="${y - DY / 2 - h - 7}" width="2" height="2" fill="#ff6a2b"/>`;
+    return box(x, y, w, h, '#ff6a2b', '#3d4a6b', '#28304a') + windows(x, y, h, w, '#ffd36b')
+      + `<rect x="${x + w / 2 + bdx / 2}" y="${y - h - bdy / 2 - 8}" width="1" height="8" fill="#e8ecf5"/><rect x="${x + w / 2 + bdx / 2 - 0.5}" y="${y - h - bdy / 2 - 10}" width="2" height="2" fill="#ff6a2b"/>`;
   };
 
-  const today = weeks.at(-1).contributionDays.at(-1).date;
-  let total = 0;
+  // Cars: small pixel sprites on the Friday/Saturday grid line and two week boundaries
+  const car = (color) => `<rect x="-4" y="-3" width="8" height="3" fill="${color}"/><rect x="-2" y="-5" width="4" height="2" fill="${color}"/><rect x="-1" y="-4.5" width="2" height="1" fill="#bfe3ff"/><rect x="-3" y="0" width="2" height="1" fill="#0b0d14"/><rect x="1" y="0" width="2" height="1" fill="#0b0d14"/>`;
+  const [ax0, ay0] = at(-m / 2, 2), [ax1] = at(cityW + m / 2, 2);
+  const avenueCars = [['#ff6a2b', 0], ['#ffd36b', -3.2]].map(([col, delay]) =>
+    `<g transform="translate(${ax0} ${ay0 + 1})"><g class="ca" style="animation-delay:${delay}s"><g transform="scale(.8)">${car(col)}</g></g></g>`).join('');
+  const streetDX = (7 + mr) * DX, streetDY = (7 + mr) * DY;
+  const streetCars = [2, 4].map((c, i) => {
+    const [sx, sy] = at(c * CW, -mr / 2);
+    return `<g transform="translate(${sx} ${sy})"><g class="cs" style="animation-delay:${(-i * 2.6).toFixed(1)}s"><g transform="scale(.8)">${car(['#e8ecf5', '#a371f7'][i])}</g></g></g>`;
+  }).join('');
+
+  // Lots, back row first so front buildings overlap the ones behind them
+  let lots = { back: '', front: '' }, total = 0;
   for (let r = 6; r >= 0; r--) {
-    weeks.forEach((week, c) => {
-      const day = week.contributionDays.find((d) => d.weekday === r);
-      if (!day) return;
-      total += day.contributionCount;
-      const lvl = LEVEL[day.contributionLevel] ?? 0;
-      const [x, y] = base(c, r);
-      art += poly([[x, y], [x + CW, y], [x + CW + DX, y - DY], [x + DX, y - DY]], (c + r) % 2 ? '#4caf50' : '#46a24a');
-      if (lvl) art += building(lvl, x, y);
-      if (day.date === today) {
-        const fx = x + 2, fy = y - HEIGHT[lvl] - (lvl === 4 ? 8 : 1);
-        art += `<rect x="${fx}" y="${fy - 16}" width="1" height="16" fill="#e8ecf5"/><polygon points="${pt(fx + 1, fy - 16)} ${pt(fx + 9, fy - 13)} ${pt(fx + 1, fy - 10)}" fill="#ff6a2b"/>`;
+    for (let c = 0; c < WEEKS; c++) {
+      const key = dateAt(c, 6 - r).toISOString().slice(0, 10), day = byDate.get(key); // row 6 = Monday
+      const n = day?.contributionCount ?? 0, future = key > today.date;
+      total += future ? 0 : n;
+      const lvl = n ? Math.max(1, LEVEL[day.contributionLevel] ?? 1) : 0;
+      const x = c * CW;
+      let s = poly(quad(x + 3, x + CW - 3, r + 0.18, r + 0.82), future ? '#3d7a40' : (c + r) % 2 ? '#4caf50' : '#46a24a');
+      if (lvl) { const [bx, by] = at(x + 5, r + 0.26); s += building(lvl, bx, by); }
+      if (key === today.date) {
+        const [fx0, fy0] = at(x + 5, r + 0.5), fy = fy0 - HEIGHT[lvl] - (lvl === 4 ? 12 : 1);
+        s += `<rect x="${fx0}" y="${fy - 18}" width="1" height="18" fill="#e8ecf5"/>${poly([[fx0 + 1, fy - 18], [fx0 + 11, fy - 14], [fx0 + 1, fy - 10]], '#ff6a2b')}`;
       }
-    });
+      if (r >= 2) lots.back += s; else lots.front += s;
+    }
   }
 
-  // Month labels along the front edge
-  let months = '', last = '', lastX = -Infinity;
-  weeks.forEach((week, c) => {
-    const m = new Date(week.contributionDays[0].date).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
-    const x = OX + c * CW;
-    if (m !== last && c < cols - 1 && x - lastX >= 32) {
-      months += `<text x="${x}" y="${OY + 26}" class="t">${m}</text>`;
-      lastX = x;
-    }
-    last = m;
+  // Labels: weekdays down the right edge (nothing stands in front of it), week start dates along the front
+  let labels = '';
+  ['S', 'S', 'F', 'T', 'W', 'T', 'M'].forEach((d, r) => { // front row is Sunday
+    const [lx, ly] = at(cityW + m, r + 0.5);
+    labels += `<text x="${lx + 7}" y="${ly + 3}" class="wd">${d}</text>`;
   });
+  for (let c = 0; c < WEEKS; c++) {
+    const d = dateAt(c, 0), first = c === 0 || d.getUTCMonth() !== dateAt(c - 1, 0).getUTCMonth();
+    const label = first ? `${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase()} ${d.getUTCDate()}` : `${d.getUTCDate()}`;
+    labels += `<text x="${OX + c * CW + CW / 2}" y="${OY + mr * DY + 12}" class="wd dl" text-anchor="middle">${label}</text>`;
+  }
 
   // Streaks over the whole year calendar
-  const days = calendar.weeks.flatMap((w) => w.contributionDays);
   let best = 0, run = 0;
-  for (const d of days) { run = d.contributionCount ? run + 1 : 0; best = Math.max(best, run); }
+  for (const d of all) { run = d.contributionCount ? run + 1 : 0; best = Math.max(best, run); }
   let current = 0;
-  for (let i = days.length - 1; i >= 0; i--) {
-    if (days[i].contributionCount) current++;
-    else if (i !== days.length - 1) break; // a quiet today doesn't break the streak yet
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].contributionCount) current++;
+    else if (i !== all.length - 1) break; // a quiet today doesn't break the streak yet
   }
 
-  // Water shimmer: short light dashes that drift and fade
-  let seed = 11;
-  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  let shimmer = '';
-  for (let i = 0; i < 46; i++) {
-    const x = Math.floor(rand() * 470), y = 66 + Math.floor(rand() * 104);
-    shimmer += `<rect x="${x}" y="${y}" width="${4 + Math.floor(rand() * 6)}" height="1" fill="#bfe3ff" style="animation-delay:${(-rand() * 4).toFixed(2)}s"/>`;
-  }
+  // Stars and a pixel moon, as in the skyline panel
+  let stars = '';
+  for (let i = 0; i < 60; i++) stars += `<rect x="${(8 + rand() * (W - 16)).toFixed(0)}" y="${(24 + rand() * (H - 48)).toFixed(0)}" width="1" height="1" fill="#ffffff" opacity="${(0.3 + rand() * 0.6).toFixed(2)}"/>`;
+  const moon = [[1, 0, 3], [0, 1, 5], [0, 2, 5], [0, 3, 5], [1, 4, 3]].map(([dx, dy, w]) => `<rect x="${W - 34 + dx * 2}" y="${52 + dy * 2}" width="${w * 2}" height="2" fill="#f4f1dc"/>`).join('')
+    + [[2, 1, 2], [1, 2, 3]].map(([dx, dy, w]) => `<rect x="${W - 34 + dx * 2}" y="${52 + dy * 2}" width="${w * 2}" height="2" fill="#c9c5a8"/>`).join('');
+  stars += moon;
 
-  // Legend: the four build stages
+  // Legend across the sky
   const legend = [
-    ['SKETCH', `<rect x=".5" y=".5" width="7" height="7" fill="#9cc9ff" fill-opacity=".14" stroke="#9cc9ff" stroke-dasharray="2 1.5"/>`],
-    ['LO-FI', `<rect x="0" y="0" width="8" height="8" fill="#9098ad"/><rect x="2" y="2" width="2" height="2" fill="#c4cad8"/><rect x="5" y="2" width="2" height="2" fill="#c4cad8"/>`],
-    ['BUILT', `<rect x="0" y="0" width="8" height="8" fill="#ece4d0"/><rect x="0" y="0" width="8" height="2" fill="#40c463"/><rect x="2" y="4" width="2" height="2" fill="#2b3a55"/><rect x="5" y="4" width="2" height="2" fill="#2b3a55"/>`],
-    ['LAUNCHED', `<rect x="0" y="0" width="8" height="8" fill="#3d4a6b"/><rect x="0" y="0" width="8" height="2" fill="#ff6a2b"/><rect x="2" y="4" width="2" height="2" fill="#ffd36b"/><rect x="5" y="4" width="2" height="2" fill="#ffd36b"/>`],
+    ['SKETCH', '<rect x="0" y="0" width="7" height="7" fill="#dde2ea"/><rect x="0" y="0" width="7" height="2" fill="#f4f6fa"/>'],
+    ['LO-FI', '<rect x="0" y="0" width="7" height="7" fill="#9098ad"/><rect x="0" y="0" width="7" height="2" fill="#c4cad8"/>'],
+    ['BUILT', '<rect x="0" y="0" width="7" height="7" fill="#ece4d0"/><rect x="0" y="0" width="7" height="2" fill="#40c463"/>'],
+    ['LAUNCHED', '<rect x="0" y="0" width="7" height="7" fill="#3d4a6b"/><rect x="0" y="0" width="7" height="2" fill="#ff6a2b"/>'],
   ];
-  let lx = 472, legendSvg = '';
-  for (const [name, icon] of [...legend].reverse()) {
-    const w = name.length * 6.2;
-    lx -= w;
-    legendSvg += `<text x="${lx}" y="16" class="sub">${name}</text><g transform="translate(${lx - 11} 9)">${icon}</g>`;
-    lx -= 22;
-  }
+  const widths = legend.map(([n]) => 10 + n.length * 5);
+  let lx = (W - (widths.reduce((a, b) => a + b, 0) + 8 * (legend.length - 1))) / 2, legendSvg = '';
+  legend.forEach(([name, icon], i) => {
+    legendSvg += `<g transform="translate(${lx} 33)">${icon}</g><text x="${lx + 10}" y="39.5" class="lg">${name}</text>`;
+    lx += widths[i] + 8;
+  });
 
-  return `${svgOpen(W, H, `Contributions island: ${total} contributions over the last 26 weeks, current streak ${current} days`, `.sh rect{animation:sh 4s linear infinite}
-@keyframes sh{0%{transform:translateX(0);opacity:0}50%{opacity:.55}100%{transform:translateX(14px);opacity:0}}
-@media (prefers-reduced-motion:reduce){.sh rect{animation:none;opacity:.3}}`)}
+  return `${svgOpen(W, H, `Contributions island: ${total} contributions over the last ${WEEKS} weeks, one lot per day, current streak ${current} days`, `.wd{font-size:8px;fill:#c3cbe0}.wd.dl{fill:#f1dfc4}.lg{font-size:7.5px;fill:#e8ecf5;letter-spacing:.4px}
+.ca{animation:ca 7s linear infinite}@keyframes ca{0%{transform:translateX(0);opacity:0}5%,95%{opacity:1}100%{transform:translateX(${(ax1 - ax0).toFixed(1)}px);opacity:0}}
+.cs{animation:cs 5.5s linear infinite}@keyframes cs{0%{transform:translate(0,0);opacity:0}6%,94%{opacity:1}100%{transform:translate(${streetDX.toFixed(1)}px,${(-streetDY).toFixed(1)}px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.ca,.cs{animation:none}}`)}
 <defs>
-  <linearGradient id="isky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#141a45"/><stop offset=".55" stop-color="#5e3a70"/><stop offset="1" stop-color="#e9955a"/></linearGradient>
-  <linearGradient id="sea" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1f5d95"/><stop offset="1" stop-color="#123a66"/></linearGradient>
-  <clipPath id="iscene"><rect x="8" y="24" width="464" height="162"/></clipPath>
+  <linearGradient id="isky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0b1030"/><stop offset=".6" stop-color="#151b47"/><stop offset="1" stop-color="#2a2160"/></linearGradient>
+  <clipPath id="iscene"><rect x="8" y="24" width="${W - 16}" height="${H - 48}"/></clipPath>
 </defs>
 ${frame(W, H, 'CONTRIBUTIONS')}
-${legendSvg}
+<text x="${W - 8}" y="16" class="sub" text-anchor="end">LAST ${WEEKS} WEEKS</text>
 <g clip-path="url(#iscene)">
-  <rect x="8" y="24" width="464" height="38" fill="url(#isky)"/>
-  <rect x="8" y="62" width="464" height="124" fill="url(#sea)"/>
-  <rect x="8" y="62" width="464" height="1" fill="#ffd9a8" opacity=".6"/>
-  <g class="sh">${shimmer}</g>
+  <rect x="8" y="24" width="${W - 16}" height="${H - 48}" fill="url(#isky)"/>
+  ${stars}
+  ${legendSvg}
   ${art}
-  ${months}
+  ${lots.back}
+  ${avenueCars}
+  ${lots.front}
+  ${streetCars}
+  ${labels}
 </g>
-<rect x="7" y="23" width="466" height="164" fill="none" stroke="#0a0d16" stroke-width="2"/>
-<text x="12" y="202" class="f">${total.toLocaleString('en-US')} CONTRIBUTIONS · LAST 26 WEEKS</text>
-<text x="468" y="202" class="f" text-anchor="end">STREAK <tspan class="fa">${current}D</tspan> · BEST ${best}D</text>
+<rect x="7" y="23" width="${W - 14}" height="${H - 46}" fill="none" stroke="#0a0d16" stroke-width="2"/>
+<text x="12" y="${H - 9}" class="f">${total.toLocaleString('en-US')} IN 5 WEEKS</text>
+<text x="${W - 12}" y="${H - 9}" class="f" text-anchor="end">STREAK <tspan class="fa">${current}D</tspan> · BEST ${best}D</text>
 </svg>
 `;
 }
 
 /* --------------------------------------------------------- player panel */
 
-const KC = [
-  'x...x.0.xxx.',
-  'x..x..0x...x',
-  'x.x...0x....',
-  'xx....0x....',
-  'x.x...0x....',
-  'x..x..0x...x',
-  'x...x.0.xxx.',
-];
+// Pixel portrait for the player card, sampled from the profile picture (see avatar.json)
+const PORTRAIT = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'avatar.json'), 'utf8'));
+// One <path> per colour, built from horizontal runs, keeps 3000+ pixels small
+function portrait(x0, y0, size) {
+  const runs = new Map();
+  PORTRAIT.data.forEach((row, y) => {
+    for (let x = 0; x < PORTRAIT.cols;) {
+      const code = row.slice(x * 2, x * 2 + 2);
+      let n = 1;
+      while (x + n < PORTRAIT.cols && row.slice((x + n) * 2, (x + n) * 2 + 2) === code) n++;
+      if (code !== '..') {
+        const fill = PORTRAIT.palette[parseInt(code, 36)];
+        runs.set(fill, (runs.get(fill) ?? '') + `M${x} ${y}h${n}v1h-${n}z`);
+      }
+      x += n;
+    }
+  });
+  // Cells are drawn on whole-number coordinates and scaled once, which keeps the path data short
+  const paths = [...runs].map(([fill, d]) => `<path d="${d}" fill="${fill}"/>`).join('');
+  return `<g transform="translate(${x0} ${y0}) scale(${+(size / PORTRAIT.cols).toFixed(4)})">${paths}</g>`;
+}
 
-function renderProfile({ viewer, calendar, repoCount, stars }) {
-  const W = 480, H = 210;
+function renderProfile({ viewer, calendar, repoCount, stars, dates, languages }) {
+  const W = 710, H = 250;
   const joined = new Date(viewer.createdAt);
   const level = Math.floor((Date.now() - joined.getTime()) / (365.25 * 24 * 3600 * 1000));
   const xp = calendar.totalContributions;
   const xpMax = Math.max(100, Math.ceil((xp + 1) / 250) * 250);
   const name = (viewer.name || DISPLAY_NAME).toUpperCase();
+  const days = calendar.weeks.flatMap((w) => w.contributionDays);
+  let best = 0, run = 0;
+  for (const d of days) { run = d.contributionCount ? run + 1 : 0; best = Math.max(best, run); }
 
-  // Emblem: KC monogram with a drop shadow in a 72px slot
-  const P = 4, ex = 14, ey = 30;
-  const mono = KC.map((row) => row.replace(/0/g, '.'));
-  const emblem = `<rect x="${ex}" y="${ey}" width="72" height="72" fill="#0b0d14"/><rect x="${ex + 2}" y="${ey + 2}" width="68" height="68" fill="#1e2440"/>`
-    + `<rect x="${ex + 2}" y="${ey + 2}" width="68" height="3" fill="#2c3550"/>`
-    + bitmap(mono, { x: '#0b0d14' }, ex + 13, ey + 23, P)
-    + bitmap(mono, { x: '#ff6a2b' }, ex + 12, ey + 21, P);
+  // Emblem: pixel portrait in a 100px slot
+  const ex = 14, ey = 30, ES = 100;
+  const emblem = `<rect x="${ex}" y="${ey}" width="${ES}" height="${ES}" fill="#0b0d14"/><rect x="${ex + 2}" y="${ey + 2}" width="${ES - 4}" height="${ES - 4}" fill="#1e2440"/>`
+    + `<rect x="${ex + 2}" y="${ey + 2}" width="${ES - 4}" height="4" fill="#2c3550"/>`
+    + `<rect x="${ex + 2}" y="${ey + 6}" width="${ES - 4}" height="${ES - 8}" fill="#2a3356"/>`
+    + `<g shape-rendering="crispEdges">${portrait(ex + 2, ey + 2, ES - 4)}</g>`;
 
   const info = [['CLASS', CLASS], ['GUILD', viewer.company || '—'], ['BASE', viewer.location || '—']]
-    .map(([k, v], i) => `<text x="100" y="${70 + i * 16}" class="t">${k}</text><text x="150" y="${70 + i * 16}" class="v">${v}</text>`).join('');
+    .map(([k, v], i) => `<text x="132" y="${84 + i * 17}" class="t">${k}</text><text x="186" y="${84 + i * 17}" class="v">${v}</text>`).join('');
 
-  const statRows = [['REPOS', repoCount], ['STARS', stars], ['FOLLOWERS', viewer.followers.totalCount]]
-    .map(([k, v], i) => `<text x="468" y="${54 + i * 16}" class="t" text-anchor="end">${k}</text><text x="408" y="${54 + i * 16}" class="n" text-anchor="end">${v}</text>`).join('');
-
-  // XP bar: 46 segments
-  const SEG = 46, sw = 6, sg = 2, bx0 = 100, by = 124;
-  const filled = Math.round((xp / xpMax) * SEG);
-  let bar = `<rect x="${bx0 - 2}" y="${by - 2}" width="${SEG * (sw + sg) + 2}" height="14" fill="#0b0d14"/>`;
-  for (let i = 0; i < SEG; i++) bar += `<rect x="${bx0 + i * (sw + sg)}" y="${by}" width="${sw}" height="10" fill="${i < filled ? (i % 2 ? '#40c463' : '#4cd06f') : '#232a42'}"/>`;
-  bar += `<rect class="xs" x="${bx0}" y="${by}" width="18" height="10" fill="#ffffff" opacity=".35"/>`;
-  const shimmerEnd = filled * (sw + sg) - 18;
-
-  // Equipped tools as gem slots
-  const slots = EQUIPPED.map(([label, color], i) => {
-    const x = 100 + i * 58, y = 156;
-    return `<rect x="${x}" y="${y}" width="52" height="42" fill="#0b0d14"/><rect x="${x + 2}" y="${y + 2}" width="48" height="38" fill="#1e2440"/>`
-      + gem(color, x + 16, y + 6, 3) + `<text x="${x + 26}" y="${y + 36}" class="s" text-anchor="middle">${label}</text>`;
+  // Two rows of stat boxes on the right
+  const stats = [
+    ['REPOS', repoCount], ['STARS', stars], ['FOLLOWERS', viewer.followers.totalCount], ['JOINED', joined.getUTCFullYear()],
+    ['COMMITS · YEAR', dates.length], ['CONTRIBUTIONS', xp], ['BEST STREAK', `${best}D`], ['TOP LANGUAGE', languages[0]?.name ?? '—'],
+  ];
+  const bw = 88, bh = 40, bg = 6, bx0 = W - 14 - (4 * bw + 3 * bg), by0 = 32;
+  const statBoxes = stats.map(([k, v], i) => {
+    const x = bx0 + (i % 4) * (bw + bg), y = by0 + Math.floor(i / 4) * (bh + bg);
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="#0b0d14"/><rect x="${x + 2}" y="${y + 2}" width="${bw - 4}" height="${bh - 4}" fill="#1b2236"/>`
+      + `<text x="${x + 8}" y="${y + 15}" class="sk">${k}</text><text x="${x + 8}" y="${y + 31}" class="sv">${v}</text>`;
   }).join('');
 
-  return `${svgOpen(W, H, `Player card: ${name}, ${CLASS}, level ${level}, ${xp} contributions this year`, `.v{font-size:11px;fill:#e8ecf5}.n{font-size:12px;fill:#ff6a2b}.s{font-size:8px;fill:#c3cbe0}
-.big{font-size:20px;fill:#ffffff;letter-spacing:1px}.lv{font-size:10px;fill:#0b0d14}
+  // XP bar spanning the card
+  const sw = 6, sg = 2, xb0 = 132, xby = 150;
+  const SEG = Math.floor((W - 14 - xb0 + sg) / (sw + sg));
+  const filled = Math.round((xp / xpMax) * SEG);
+  let bar = `<rect x="${xb0 - 2}" y="${xby - 2}" width="${SEG * (sw + sg) + 2}" height="14" fill="#0b0d14"/>`;
+  for (let i = 0; i < SEG; i++) bar += `<rect x="${xb0 + i * (sw + sg)}" y="${xby}" width="${sw}" height="10" fill="${i < filled ? (i % 2 ? '#40c463' : '#4cd06f') : '#232a42'}"/>`;
+  bar += `<rect class="xs" x="${xb0}" y="${xby}" width="18" height="10" fill="#ffffff" opacity=".35"/>`;
+  const shimmerEnd = filled * (sw + sg) - 18;
+
+  // Equipped tools use the same pixel icons as the skill tree
+  const icons = new Map(ICONS);
+  const slotW = 53, slotH = 52, gap = 4;
+  const slots = EQUIPPED.map((label, i) => {
+    const { rows, pal } = icons.get(label)();
+    const x = xb0 + i * (slotW + gap), y = 186;
+    const iw = rows[0].length * 2, ih = rows.length * 2;
+    return `<rect x="${x}" y="${y}" width="${slotW}" height="${slotH}" fill="#0b0d14"/><rect x="${x + 2}" y="${y + 2}" width="${slotW - 4}" height="${slotH - 4}" fill="#1e2440"/>`
+      + bitmap(rows, pal, x + (slotW - iw) / 2, y + 7 + (26 - ih) / 2, 2)
+      + `<text x="${x + slotW / 2}" y="${y + 45}" class="s" text-anchor="middle">${label}</text>`;
+  }).join('');
+
+  return `${svgOpen(W, H, `Player card: ${name}, ${CLASS}, level ${level}, ${xp} contributions this year`, `.v{font-size:12px;fill:#e8ecf5}.s{font-size:8px;fill:#c3cbe0}
+.sk{font-size:7.5px;fill:#8b97b8;letter-spacing:.8px}.sv{font-size:13px;fill:#ff6a2b}
+.big{font-size:26px;fill:#ffffff;letter-spacing:1px}.lv{font-size:11px;fill:#0b0d14}
 .xs{animation:xs 3.5s ease-in-out infinite}
 @keyframes xs{0%{transform:translateX(0);opacity:0}15%{opacity:.35}85%{opacity:.35}100%{transform:translateX(${Math.max(0, shimmerEnd)}px);opacity:0}}
 @media (prefers-reduced-motion:reduce){.xs{animation:none;opacity:0}}`)}
 ${frame(W, H, 'PLAYER')}
-<text x="472" y="16" class="sub" text-anchor="end">JOINED ${joined.getUTCFullYear()}</text>
+<text x="${W - 8}" y="16" class="sub" text-anchor="end">${viewer.login.toUpperCase()} · LV ${level}</text>
 ${emblem}
-<rect x="14" y="108" width="72" height="16" fill="#ff6a2b"/>
-<text x="50" y="120" class="lv" text-anchor="middle">LV ${level}</text>
-<text x="100" y="48" class="big">${name}</text>
+<rect x="${ex}" y="${ey + ES + 6}" width="${ES}" height="18" fill="#ff6a2b"/>
+<text x="${ex + ES / 2}" y="${ey + ES + 19}" class="lv" text-anchor="middle">LV ${level}</text>
+<text x="${ex + ES / 2}" y="${ey + ES + 46}" class="t" text-anchor="middle">GITHUB</text>
+<text x="${ex + ES / 2}" y="${ey + ES + 60}" class="s" text-anchor="middle">@${viewer.login}</text>
+<text x="132" y="58" class="big">${name}</text>
 ${info}
-${statRows}
-<text x="100" y="117" class="t">XP</text>
-<text x="${bx0 + SEG * (sw + sg) - 2}" y="117" class="t" text-anchor="end"><tspan class="fa">${xp}</tspan> / ${xpMax} · CONTRIBUTIONS THIS YEAR</text>
+${statBoxes}
+<text x="132" y="143" class="t">XP</text>
+<text x="${xb0 + SEG * (sw + sg) - 2}" y="143" class="t" text-anchor="end"><tspan class="fa">${xp}</tspan> / ${xpMax} · CONTRIBUTIONS THIS YEAR</text>
 ${bar}
-<text x="100" y="150" class="t">EQUIPPED</text>
-${slots}
-<text x="50" y="150" class="t" text-anchor="middle">GITHUB</text>
-<text x="50" y="164" class="s" text-anchor="middle">@${viewer.login}</text>
+<text x="132" y="180" class="t">EQUIPPED</text>
+<g shape-rendering="crispEdges">${slots}</g>
 </svg>
 `;
 }

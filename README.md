@@ -10,6 +10,6 @@
 
 <p align="center">
 <img src="metrics/skills.svg" width="100%" alt="Skill tree: React, TypeScript, JavaScript, Vite, Tailwind, Next.js, Angular, three.js, Blender, Unity, C#, C++, Node.js, NestJS, Prisma, PostgreSQL, .NET, Azure, Firebase, Git, GitHub Actions, Netlify, Jest, Vitest">
-<img src="metrics/profile.svg" width="50%" alt="Player card: name, class, level and equipped tools"><img src="metrics/calendar.svg" width="50%" alt="Contributions island: the last 26 weeks as building plots">
+<img src="metrics/profile.svg" width="73.663%" alt="Player card: name, class, level and equipped tools"><img src="metrics/calendar.svg" width="26.337%" alt="Contributions island: the last 5 weeks as a city, one lot per day">
 <img src="metrics/languages.svg" width="50%" alt="Inventory: most used languages"><img src="metrics/habits.svg" width="50%" alt="Coding habits: pixel skyline of commits per hour of day">
 </p>
